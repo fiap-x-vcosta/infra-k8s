@@ -27,3 +27,27 @@ variable "k8s_namespace" {
   description = "Namespace compartilhado do Gateway e das service accounts Kubernetes."
   default     = "fiap-x"
 }
+
+variable "gke_gateway_name" {
+  type        = string
+  description = "Nome do Gateway do GKE no namespace compartilhado."
+  default     = "public"
+}
+
+variable "api_static_ip_name" {
+  type        = string
+  description = "Nome do IP global do Gateway do GKE (hostname api.<domínio>)."
+  default     = "fiap-x-api"
+}
+
+variable "api_ssl_certificate_name" {
+  type        = string
+  description = "Nome do certificado gerenciado do hostname api.<domínio>."
+  default     = "fiap-x-api-cert"
+}
+
+variable "public_path_prefix" {
+  type        = string
+  description = "Único path prefix público no Gateway (HTTPRoute do bff)."
+  default     = "/bff"
+}

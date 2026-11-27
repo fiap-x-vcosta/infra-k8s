@@ -20,3 +20,33 @@ output "runtime_workload_identity_members" {
     id => "${var.project_id}.svc.id.goog[${var.k8s_namespace}/${id}]"
   }
 }
+
+output "gke_gateway_name" {
+  description = "Nome do Gateway do GKE. HTTPRoute de serviço referencia este nome no listener https."
+  value       = var.gke_gateway_name
+}
+
+output "api_static_ip" {
+  description = "IP global do Gateway do GKE (A de api.<domínio>)."
+  value       = google_compute_global_address.api.address
+}
+
+output "api_static_ip_name" {
+  description = "Nome do IP global do Gateway do GKE."
+  value       = google_compute_global_address.api.name
+}
+
+output "api_ssl_certificate_name" {
+  description = "Certificado gerenciado anexado ao listener HTTPS do Gateway do GKE."
+  value       = google_compute_managed_ssl_certificate.api.name
+}
+
+output "api_hostname" {
+  description = "Hostname público da API (A → api_static_ip)."
+  value       = local.api_hostname
+}
+
+output "public_path_prefix" {
+  description = "Único path prefix público. HTTPRoute do bff usa este valor."
+  value       = var.public_path_prefix
+}

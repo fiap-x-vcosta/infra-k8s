@@ -1,35 +1,75 @@
 # infra-k8s
 
-Terraform do **cluster GKE Autopilot**, **Gateway of GKE** e bindings de Workload Identity do FIAP X ([`fiap-x-vcosta`](https://github.com/fiap-x-vcosta)).
+Terraform do **GKE Autopilot** e da borda HTTPS do FIAP X ([`fiap-x-vcosta`](https://github.com/fiap-x-vcosta)).
 
 Canon de produto: [`docs`](https://github.com/fiap-x-vcosta/docs). Rede, zona DNS e SAs de runtime: [`infra-bootstrap`](https://github.com/fiap-x-vcosta/infra-bootstrap).
 
 ## Escopo
 
-- Cluster GKE Autopilot `fiap-x-gke` (ciclo de demo)
+- Cluster GKE Autopilot `fiap-x-gke` em `us-central1` (ciclo de demo)
+- Cloud NAT na subnet do bootstrap
 - Namespace Kubernetes `fiap-x`
-- Gateway of GKE em `api.vcosta-fiap.online`
-- Única rota pública: `/bff` → `consultas-service` (`bff`); demais serviços só internos ao cluster
-- Sem GCP API Gateway
 - Workload Identity (KSA → GSA de runtime) enquanto o cluster existir
-- Records DNS da janela pública na zona gerenciada pelo bootstrap
-- Região `us-central1`, projeto `fiap-x-vcosta`
-- State remoto em GCS (bucket gerenciado pelo [`infra-bootstrap`](https://github.com/fiap-x-vcosta/infra-bootstrap); `tf-destroy` não o apaga)
-
-Manifests de Deployment/Service de cada microsserviço moram no repositório do serviço (`k8s/`). Este stack sobe o cluster, a entrada e o binding de identidade.
+- Gateway do GKE em `api.vcosta-fiap.online` + IP/cert managed
+- **Única** rota pública: `/bff` → `consultas-service` (`bff`); demais serviços só internos
+- **Sem** GCP API Gateway; **sem** records `www`/apex neste repo
+- State remoto GCS (`fiap-x-vcosta-tfstate` / `infra-k8s`)
 
 Root module: [`terraform/`](terraform/). Pin Terraform: **1.16.1** (alinhado a [`actions`](https://github.com/fiap-x-vcosta/actions)).
+
+O manifesto do Gateway é [`terraform/gke-gateway.yaml.tpl`](terraform/gke-gateway.yaml.tpl) (aplicado pelo workflow; fora do state). `HTTPRoute` e Deployment de cada serviço ficam no repositório do serviço.
+
+## Componentes
+
+```mermaid
+flowchart TB
+  client["Cliente / FE"]
+  apiDns["api.vcosta-fiap.online"]
+  gkeGw["Gateway GKE public"]
+  bffRoute["HTTPRoute /bff"]
+  bffPod["consultas-service"]
+  internal["Services internos ClusterIP"]
+
+  client -->|"HTTPS /bff"| apiDns
+  apiDns --> gkeGw
+  gkeGw --> bffRoute --> bffPod
+  bffPod -->|"rede do cluster"| internal
+```
 
 ## Entrada pública
 
 | Item | Valor |
 |------|--------|
 | Host | `api.vcosta-fiap.online` |
-| Gateway | Gateway of GKE |
+| Gateway | `public` (`gke-l7-global-external-managed`) |
+| Namespace | `fiap-x` |
 | Path público | `/bff` → `consultas-service` |
-| Demais serviços | Internos (sem exposição no Gateway) |
+| Demais serviços | Internos (sem `HTTPRoute` público) |
+| Front `www` / apex | Repo `web` (outro stack) |
 
-Não há GCP API Gateway neste projeto.
+### Contrato `HTTPRoute` (repo `consultas-service`)
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: bff
+  namespace: fiap-x
+spec:
+  parentRefs:
+    - name: public
+      sectionName: https
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /bff
+      backendRefs:
+        - name: consultas
+          port: 80
+```
+
+Sem `HTTPRoute` de serviço, o prefixo público responde 404 no Gateway. `/system` não atravessa a borda pública.
 
 ## State (GCS)
 
@@ -38,19 +78,16 @@ Não há GCP API Gateway neste projeto.
 | Bucket | `fiap-x-vcosta-tfstate` |
 | Prefix deste repo | `infra-k8s` |
 
-Rede, Artifact Registry, e-mails das SAs de runtime e zona DNS vêm do `terraform_remote_state` do [`infra-bootstrap`](https://github.com/fiap-x-vcosta/infra-bootstrap).
-
 ## CI vs CD
 
 | Tipo | Quando | Automático? |
 |------|--------|-------------|
-| **CI** `fmt` + `validate` | PR / push | Sim |
-| **CI** `plan` (OIDC) | PR | Sim |
-| **`tf-apply` / `tf-destroy`** | Janela da demo / sob demanda | Só manual (`workflow_dispatch`) |
+| **CI** `fmt` + `validate` (+ `plan` em PR) | PR / push | Sim |
+| **`tf-apply` / `tf-destroy`** | Janela da demo | Só manual (`workflow_dispatch`) |
 
-Merge em `main` **nunca** sobe o cluster. O gatilho de apply/destroy é **manual** (`workflow_dispatch`). Passos extras (Gateway pós-apply, cleanup pré-destroy) ficam em **jobs do caller**, cobertos pelo mesmo concurrency — ver [`actions`](https://github.com/fiap-x-vcosta/actions).
+Merge em `main` **nunca** liga o cluster. Jobs extras (aplicar Gateway pós-apply; limpar Gateway/`HTTPRoute`/LBs pré-destroy) ficam nos callers `tf-apply` / `tf-destroy` deste repo, usando [`actions`](https://github.com/fiap-x-vcosta/actions).
 
-Os callers usam [`fiap-x-vcosta/actions`](https://github.com/fiap-x-vcosta/actions) e autenticam com as org vars `GCP_WORKLOAD_IDENTITY_PROVIDER` e `GCP_SERVICE_ACCOUNT_EMAIL`.
+Org vars: `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT_EMAIL`, `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_GKE_CLUSTER_NAME` (`fiap-x-gke`).
 
 ## Comandos locais
 
@@ -61,34 +98,23 @@ terraform init -backend=false
 terraform validate
 ```
 
-Plan/apply local exigem ADC (`gcloud auth application-default login`) e backend GCS (`terraform init` sem `-backend=false`).
+Plan/apply reais: ADC ou workflow manual; backend GCS.
 
-## Roles da SA `github-actions` (least-privilege)
+## Custo na janela
 
-A service account, o OIDC e as roles são código no [`infra-bootstrap`](https://github.com/fiap-x-vcosta/infra-bootstrap). Deste conjunto, este stack usa (entre outras):
-
-- roles de GKE / container para criar e destruir o cluster Autopilot
-- `roles/dns.admin` — records da janela na zona `vcosta-fiap.online`
-- role customizada de binding KSA→GSA (Workload Identity de runtime)
-- no bucket de state: `roles/storage.objectAdmin`
-
-Este repositório já está em `ci_repositories` do bootstrap (WIF por repositório).
+Autopilot + **um** LB global (Gateway do GKE) + Cloud NAT + IP/cert. Sem segundo LB de API Gateway. Sempre `tf-destroy` / `demo-down` ao fim da janela.
 
 ## Ordem na demo
 
-O `infra-bootstrap` já está aplicado e não entra neste ciclo. O destroy daqui não toca no bucket de state nem na zona DNS.
+1. `infra-bootstrap` já aplicado (zona DNS + NS no registrador)
+2. Este repo → **tf-apply** (cluster + `api.` + cert + Gateway), em paralelo com [`infra-events`](https://github.com/fiap-x-vcosta/infra-events)
+3. Esperar certificado de `api.` **Active**
+4. `tf-apply` / deploy dos serviços (`HTTPRoute` `/bff` no `consultas-service`)
+5. Destroy inverso: serviços → este repo → `infra-events`
 
-Subida:
+## Decisões (ADRs)
 
-1. Este repo → **tf-apply** (cluster + Gateway + WI), em paralelo com [`infra-events`](https://github.com/fiap-x-vcosta/infra-events) → **tf-apply**
-2. **tf-apply** de cada serviço (Cloud SQL + subscription/dead-letter + IAM)
-3. Deploy dos serviços
-
-Descida:
-
-1. **tf-destroy** de cada serviço
-2. [`infra-events`](https://github.com/fiap-x-vcosta/infra-events) → **tf-destroy**
-3. Este repo → **tf-destroy**
+Ver [`docs/README.md`](docs/README.md).
 
 ## Agentes
 
