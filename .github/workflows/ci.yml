@@ -1,0 +1,16 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  terraform:
+    uses: fiap-x-vcosta/actions/.github/workflows/ci-terraform.yml@main
+    with:
+      run_plan: true
+      require_k8s_vars: true
