@@ -4,12 +4,11 @@ on:
   push:
   pull_request:
 
-permissions:
-  contents: read
-  id-token: write
-
 jobs:
   terraform:
+    permissions:
+      contents: read
+      id-token: write
     uses: fiap-x-vcosta/actions/.github/workflows/ci-terraform.yml@main
     with:
       run_plan: true
