@@ -1,0 +1,127 @@
+name: tf-destroy
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: terraform-infra-k8s
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  cleanup:
+    name: Cleanup Gateway and LBs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: terraform
+    env:
+      TF_VAR_cluster_name: ${{ vars.GCP_GKE_CLUSTER_NAME }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check required org vars
+        working-directory: .
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT_EMAIL: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+          GCP_GKE_CLUSTER_NAME: ${{ vars.GCP_GKE_CLUSTER_NAME }}
+        run: |
+          missing=()
+          for name in GCP_PROJECT_ID GCP_REGION \
+                      GCP_WORKLOAD_IDENTITY_PROVIDER GCP_SERVICE_ACCOUNT_EMAIL \
+                      GCP_GKE_CLUSTER_NAME; do
+            [[ -n "${!name}" ]] || missing+=("$name")
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "vars faltando: ${missing[*]}" >&2
+            exit 1
+          fi
+
+          {
+            echo "TF_VAR_project_id=$GCP_PROJECT_ID"
+            echo "TF_VAR_region=$GCP_REGION"
+          } >> "$GITHUB_ENV"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: gke-gcloud-auth-plugin
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.1"
+          terraform_wrapper: false
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Delete Gateway, HTTPRoutes, LoadBalancers and Ingresses
+        env:
+          CLUSTER_NAME: ${{ vars.GCP_GKE_CLUSTER_NAME }}
+          CLUSTER_LOCATION: ${{ vars.GCP_REGION }}
+        run: |
+          set -euo pipefail
+          if ! gcloud container clusters describe "$CLUSTER_NAME" --region "$CLUSTER_LOCATION" >/dev/null 2>&1; then
+            echo "cluster ausente; nada a limpar"
+            exit 0
+          fi
+          gcloud container clusters get-credentials "$CLUSTER_NAME" \
+            --region "$CLUSTER_LOCATION" --dns-endpoint
+          namespace="$(terraform output -raw k8s_namespace)"
+          gateway_name="$(terraform output -raw gke_gateway_name)"
+          ip_name="$(terraform output -raw api_static_ip_name)"
+          if kubectl get namespace "$namespace" >/dev/null 2>&1; then
+            kubectl delete httproute --all --namespace "$namespace" --ignore-not-found --wait --timeout=180s
+            kubectl delete gateway "$gateway_name" --namespace "$namespace" --ignore-not-found --wait --timeout=180s
+          fi
+          kubectl get services --all-namespaces \
+            -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' \
+          | while read -r ns name; do
+              [[ -n "$name" ]] || continue
+              echo "removendo service $ns/$name"
+              kubectl delete service "$name" --namespace "$ns" --wait
+            done
+          kubectl get ingress --all-namespaces \
+            -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' \
+          | while read -r ns name; do
+              [[ -n "$name" ]] || continue
+              echo "removendo ingress $ns/$name"
+              kubectl delete ingress "$name" --namespace "$ns" --wait
+            done
+          address="$(gcloud compute addresses describe "$ip_name" --global --format='value(address)' 2>/dev/null || true)"
+          if [[ -z "$address" ]]; then
+            echo "IP $ip_name ausente"
+            exit 0
+          fi
+          for _ in $(seq 1 60); do
+            rules="$(gcloud compute forwarding-rules list --global --filter="IPAddress=${address}" --format='value(name)')"
+            if [[ -z "$rules" ]]; then
+              echo "forwarding rules do IP $ip_name ausentes"
+              exit 0
+            fi
+            echo "ainda presentes: ${rules//$'\n'/, }"
+            sleep 15
+          done
+          echo "forwarding rules do Gateway ainda existem" >&2
+          exit 1
+
+  destroy:
+    needs: cleanup
+    uses: fiap-x-vcosta/actions/.github/workflows/tf-destroy.yml@main
+    with:
+      require_k8s_vars: true

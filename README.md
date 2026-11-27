@@ -82,12 +82,13 @@ Sem `HTTPRoute` de serviço, o prefixo público responde 404 no Gateway. `/syste
 
 | Tipo | Quando | Automático? |
 |------|--------|-------------|
-| **CI** `fmt` + `validate` (+ `plan` em PR) | PR / push | Sim |
-| **`tf-apply` / `tf-destroy`** | Janela da demo | Só manual (`workflow_dispatch`) |
+| **CI** `fmt` + `validate` (+ `plan` em PR) | PR / push | Sim ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) |
+| **`tf-apply`** | Janela da demo | Manual — apply + `kubectl` do Gateway ([`tf-apply.yml`](.github/workflows/tf-apply.yml)) |
+| **`tf-destroy`** | Fim da janela | Manual — limpa Gateway/`HTTPRoute`/LBs e espera forwarding rule, depois destroy ([`tf-destroy.yml`](.github/workflows/tf-destroy.yml)) |
 
-Merge em `main` **nunca** liga o cluster. Jobs extras (aplicar Gateway pós-apply; limpar Gateway/`HTTPRoute`/LBs pré-destroy) ficam nos callers `tf-apply` / `tf-destroy` deste repo, usando [`actions`](https://github.com/fiap-x-vcosta/actions).
+Merge em `main` **nunca** liga o cluster. Callers usam [`actions`](https://github.com/fiap-x-vcosta/actions) (`require_k8s_vars: true`).
 
-Org vars: `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT_EMAIL`, `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_GKE_CLUSTER_NAME` (`fiap-x-gke`).
+Org vars obrigatórias: `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT_EMAIL`, `GCP_GKE_CLUSTER_NAME` (`fiap-x-gke`).
 
 ## Comandos locais
 
