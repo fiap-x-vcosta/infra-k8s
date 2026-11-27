@@ -1,0 +1,12 @@
+---
+description: Nunca assumir contexto; perguntar antes de decisões ambíguas
+alwaysApply: true
+---
+
+# Contexto e perguntas
+
+- Nunca assumir nomes de cluster/namespace, paths do Gateway, bindings de Workload Identity, records DNS ou custo quando estiverem ambíguos.
+- Antes de `apply`/`destroy` ou de alterar cluster, Gateway, rotas públicas ou WI já aplicados: perguntar.
+- Mudança no host/path público (`api.vcosta-fiap.online`, `/bff`) ou no nome do cluster/namespace exige confirmação explícita — quebra DNS, deploys e callers.
+- Preferir 1–2 perguntas críticas por vez; propor opções concretas.
+- Canon de produto: [`fiap-x-vcosta/docs`](https://github.com/fiap-x-vcosta/docs). Decisões de infra deste repo: README. Rede/DNS/SAs: [`infra-bootstrap`](https://github.com/fiap-x-vcosta/infra-bootstrap).

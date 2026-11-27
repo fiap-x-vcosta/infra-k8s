@@ -1,0 +1,12 @@
+---
+description: Layout Terraform e estilo de docs/HCL (infra-k8s)
+alwaysApply: true
+---
+
+# Layout e estilo (`infra-k8s`)
+
+- Root module em **`terraform/`** (não espalhar `.tf` na raiz). Um arquivo por assunto (`cluster.tf`, `gateway.tf`, `workload_identity.tf`, `dns.tf`, `outputs.tf`, …).
+- CI Terraform usa `working-directory: terraform` e pin **1.16.1**, alinhado a `fiap-x-vcosta/actions` e aos demais repos de infra.
+- **Sem comentários narrativos** em `.tf` (o código e os nomes devem bastar). Comentário só em arquivo **placeholder vazio**.
+- **README:** lista do que está no escopo; autocontido — sem pastas fora do Git da org.
+- `.gitignore` agrupado por seção (`# Terraform`, `# OS`, …).

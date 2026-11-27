@@ -1,0 +1,13 @@
+---
+description: Fluxo Git — sem commit/push em main; IA nunca faz merge de PR
+alwaysApply: true
+---
+
+# Fluxo Git (`main`)
+
+- **Nunca** commit ou push direto em `main` (nem com admin bypass “por comodidade”).
+- Fluxo: branch a partir de `main` → commits na branch → **PR** → o **humano** revisa e faz o **merge**.
+- A IA **abre e atualiza PRs**, mas **nunca** faz merge (`gh pr merge`, botão Merge, merge via API, etc.), mesmo se pedirem “já pode mergear” de forma ambígua — confirmar que o humano fará o merge e **parar**.
+- Commits pedindo “só commitar” / “já está em main”: **parar**, criar/usar branch de feature e abrir PR.
+- Branch protection / ruleset da org podem não estar ativos (ex. plano Free sem Team); a regra de processo **continua obrigatória**.
+- Não use `--force` em `main`. Não faça amend de commits já em `main` remoto.

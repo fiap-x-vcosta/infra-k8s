@@ -1,0 +1,17 @@
+---
+description: Restrições Terraform do GKE Autopilot e Gateway (infra-k8s)
+alwaysApply: true
+---
+
+# Restrições do projeto (`infra-k8s`)
+
+- Escopo: **Terraform** do ciclo de demo — GKE Autopilot (`fiap-x-gke`), namespace `fiap-x`, Gateway of GKE em `api.vcosta-fiap.online`, Workload Identity (KSA→GSA) e records DNS da janela. Apply e destroy manuais (`tf-apply` / `tf-destroy`).
+- Única rota pública: `/bff` → `consultas-service` (`bff`). Demais serviços só internos ao cluster.
+- **Sem** GCP API Gateway. Entrada = Gateway of GKE.
+- Sem Cloud SQL, sem tópicos Pub/Sub, sem buckets de mídia, sem Memorystore e sem código de aplicação (manifests `k8s/` de cada serviço ficam no repo do serviço).
+- State remoto GCS (`fiap-x-vcosta-tfstate`, prefix `infra-k8s`). Região **`us-central1`**, projeto **`fiap-x-vcosta`**.
+- Sem secrets no Git.
+- CI: `fmt` + `validate` + `plan` via `fiap-x-vcosta/actions` `ci-terraform`; root module em `terraform/`. Pin Terraform **1.16.1**.
+- Extras de Gateway pós-apply / cleanup pré-destroy ficam em jobs do **caller**, não nos reusables genéricos.
+- README autocontido na org [`fiap-x-vcosta`](https://github.com/fiap-x-vcosta): sem referências a pastas fora do Git da org.
+- Proibida a string que combina o produto com “videos” em camel/kebab/snake. Preferir `fiap-x`, `processamento`, `midia`, `frames`.
